@@ -274,6 +274,9 @@
                                 <state key="normal" title="Contact Support">
                                     <color key="titleColor" systemColor="systemBlueColor"/>
                                 </state>
+                                <connections>
+                                    <action selector="contactSupportPressed:" destination="eZb-O9-KwV" eventType="touchUpInside" id="NXs-0d-Cir"/>
+                                </connections>
                             </button>
                         </subviews>
                         <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="calibratedWhite"/>
