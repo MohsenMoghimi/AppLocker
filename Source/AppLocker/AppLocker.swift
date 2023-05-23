@@ -117,7 +117,8 @@ public class AppLocker: UIViewController {
         let results = pinIndicators.filter { $0.isNeedClear == isNeedClear }
         let pinView = isNeedClear ? results.last : results.first
         pinView?.isNeedClear = !isNeedClear
-        
+        pinView?.layer.cornerRadius = (pinView?.frame.size.width ?? 0)/2
+        pinView?.clipsToBounds = true
         UIView.animate(withDuration: ALConstants.duration, animations: {
             if #available(iOS 12, *) {
                 if UIScreen.main.traitCollection.userInterfaceStyle == .light {
