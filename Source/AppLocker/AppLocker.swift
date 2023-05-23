@@ -9,11 +9,10 @@
 import UIKit
 import AudioToolbox
 import LocalAuthentication
-import Valet
 
 public enum ALConstants {
     static let nibName = "AppLocker"
-    static let kPincode = "pincode" // Key for saving pincode to keychain
+    static let kPincode = "tewa_pincode" // Key for saving pincode to UserDefaults
     static let kLocalizedReason = "Unlock with sensor" // Your message when sensors must be shown
     static let duration = 0.3 // Duration of indicator filling
     static let maxPinLength = 4
@@ -24,16 +23,22 @@ public enum ALConstants {
     }
 }
 
-public typealias onSuccessfulDismissCallback = (_ mode: ALMode?) -> () // Cancel dismiss will send mode as nil
-public typealias onFailedAttemptCallback = (_ mode: ALMode) -> ()
-public struct ALOptions { // The structure used to display the controller
+public struct ALAppearance { // The structure used to display the controller
     public var title: String?
     public var subtitle: String?
+    public var deleteString: String?
+    public var cancelString: String?
+    public var contactUsString: String?
+    public var createString: String?
+    public var validateString: String?
+    public var confirmString: String?
     public var image: UIImage?
     public var color: UIColor?
     public var isSensorsEnabled: Bool?
-    public var onSuccessfulDismiss: onSuccessfulDismissCallback?
-    public var onFailedAttempt: onFailedAttemptCallback?
+    public var supprotURL: URL?
+    public var isRTL: Bool = false
+    public var isLightTheme: Bool = false
+    public var supportButtonAction: (()->Void)?
     public init() {}
 }
 
@@ -51,49 +56,58 @@ public class AppLocker: UIViewController {
     @IBOutlet weak var messageLabel: UILabel!
     @IBOutlet weak var submessageLabel: UILabel!
     @IBOutlet var pinIndicators: [Indicator]!
+    @IBOutlet weak var contactSupportButton: UIButton!
     @IBOutlet weak var cancelButton: UIButton!
+    @IBOutlet weak var deleteButton: UIButton!
     
-    static let valet = Valet.valet(with: Identifier(nonEmpty: "Druidia")!, accessibility: .whenUnlockedThisDeviceOnly)
+    @IBOutlet weak var button1: UIButton!
+    @IBOutlet weak var button2: UIButton!
+    @IBOutlet weak var button3: UIButton!
+    @IBOutlet weak var button4: UIButton!
+    @IBOutlet weak var button5: UIButton!
+    @IBOutlet weak var button6: UIButton!
+    @IBOutlet weak var button7: UIButton!
+    @IBOutlet weak var button8: UIButton!
+    @IBOutlet weak var button9: UIButton!
+    @IBOutlet weak var button0: UIButton!
+    
+    
     // MARK: - Pincode
-    private var onSuccessfulDismiss: onSuccessfulDismissCallback?
-    private var onFailedAttempt: onFailedAttemptCallback?
+
     private let context = LAContext()
     private var pin = "" // Entered pincode
     private var reservedPin = "" // Reserve pincode for confirm
     private var isFirstCreationStep = true
+    private var retryCount: Int = 0
+    private var supportURL: URL?
+    public var confirmString: String?
     private var savedPin: String? {
         get {
-            return AppLocker.valet.string(forKey: ALConstants.kPincode)
+            return UserDefaults.standard.string(forKey: ALConstants.kPincode)
         }
         set {
-            guard let newValue = newValue else { return }
-            AppLocker.valet.set(string: newValue, forKey: ALConstants.kPincode)
+            UserDefaults.standard.set(newValue, forKey: ALConstants.kPincode)
         }
     }
     
-    public override func viewDidLoad() {
-        super.viewDidLoad()
-        // https://stackoverflow.com/questions/56459329/disable-the-interactive-dismissal-of-presented-view-controller-in-ios-13
-        modalPresentationStyle = .fullScreen
-    }
-    
-    fileprivate var mode: ALMode = .validate {
+    fileprivate var mode: ALMode? {
         didSet {
+            let mode = self.mode ?? .validate
             switch mode {
             case .create:
-                submessageLabel.text = "Create your passcode" // Your submessage for create mode
+                submessageLabel.text = "Create your TeWa Passcode" // Your submessage for create mode
             case .change:
-                submessageLabel.text = "Enter your passcode" // Your submessage for change mode
+                submessageLabel.text = "Enter your TeWa Passcode" // Your submessage for change mode
             case .deactive:
-                submessageLabel.text = "Enter your passcode" // Your submessage for deactive mode
+                submessageLabel.text = "Enter your TeWa Passcode" // Your submessage for deactive mode
             case .validate:
-                submessageLabel.text = "Enter your passcode" // Your submessage for validate mode
+                submessageLabel.text = "Enter your TeWa Passcode" // Your submessage for validate mode
                 cancelButton.isHidden = true
                 isFirstCreationStep = false
             }
         }
     }
-    
+    private var supportButtonAction: (()->Void)?
     private func precreateSettings () { // Precreate settings for change mode
         mode = .create
         clearView()
@@ -105,7 +119,14 @@ public class AppLocker: UIViewController {
         pinView?.isNeedClear = !isNeedClear
         
         UIView.animate(withDuration: ALConstants.duration, animations: {
-            pinView?.backgroundColor = isNeedClear ? .clear : .white
+            if #available(iOS 12, *) {
+                if UIScreen.main.traitCollection.userInterfaceStyle == .light {
+                    pinView?.backgroundColor = isNeedClear ? .clear : .black
+                }
+                else {
+                    pinView?.backgroundColor = isNeedClear ? .clear : .white
+                }
+            }
         }) { _ in
             isNeedClear ? self.pin = String(self.pin.dropLast()) : self.pincodeChecker(tag ?? 0)
         }
@@ -115,7 +136,7 @@ public class AppLocker: UIViewController {
         if pin.count < ALConstants.maxPinLength {
             pin.append("\(pinNumber)")
             if pin.count == ALConstants.maxPinLength {
-                switch mode {
+                switch mode ?? .validate {
                 case .create:
                     createModeAction()
                 case .change:
@@ -135,61 +156,55 @@ public class AppLocker: UIViewController {
             isFirstCreationStep = false
             reservedPin = pin
             clearView()
-            submessageLabel.text = "Confirm your pincode"
+            submessageLabel.text = confirmString
         } else {
             confirmPin()
         }
     }
     
     private func changeModeAction() {
-        if pin == savedPin {
-            precreateSettings()
-        } else {
-            onFailedAttempt?(mode)
-            incorrectPinAnimation()
-        }
+        pin == savedPin ? precreateSettings() : incorrectPinAnimation()
     }
     
     private func deactiveModeAction() {
-        if pin == savedPin {
-            removePin()
-        } else {
-            onFailedAttempt?(mode)
-            incorrectPinAnimation()
-        }
+        pin == savedPin ? removePin() : incorrectPinAnimation()
     }
     
     private func validateModeAction() {
         if pin == savedPin {
-            dismiss(animated: true) {
-                self.onSuccessfulDismiss?(self.mode)
-            }
-        } else {
-            onFailedAttempt?(mode)
+            retryCount = 0
+            UserDefaults.standard.set(false, forKey: "tewa_passcode_background_enabled")
+            dismiss(animated: true, completion: nil)
+        }
+        else {
+            retryCount += 1
             incorrectPinAnimation()
         }
+//        pin == savedPin ? dismiss(animated: true, completion: nil) : incorrectPinAnimation()
     }
     
     private func removePin() {
-        AppLocker.valet.removeObject(forKey: ALConstants.kPincode)
-        dismiss(animated: true) {
-            self.onSuccessfulDismiss?(self.mode)
-        }
+        UserDefaults.standard.removeObject(forKey: ALConstants.kPincode)
+        UserDefaults.standard.set(false, forKey: "tewa_passcode_enabled")
+        dismiss(animated: true, completion: nil)
     }
     
     private func confirmPin() {
         if pin == reservedPin {
             savedPin = pin
-            dismiss(animated: true) {
-                self.onSuccessfulDismiss?(self.mode)
-            }
+            dismiss(animated: true, completion: {
+                UserDefaults.standard.set(true, forKey: "tewa_passcode_enabled")
+                NotificationCenter.default.post(name: Notification.Name("tewa_new_password_setuped"), object: nil)
+            })
         } else {
-            onFailedAttempt?(mode)
             incorrectPinAnimation()
         }
     }
     
     private func incorrectPinAnimation() {
+        if retryCount >= 3 && mode == .validate{
+            contactSupportButton.isHidden = false
+        }
         pinIndicators.forEach { view in
             view.shake(delegate: self)
             view.backgroundColor = .clear
@@ -209,7 +224,7 @@ public class AppLocker: UIViewController {
     
     // MARK: - Touch ID / Face ID
     fileprivate func checkSensors() {
-        if case .validate = mode {} else { return }
+        guard mode == .validate else {return}
         
         var policy: LAPolicy = .deviceOwnerAuthenticationWithBiometrics // iOS 8+ users with Biometric and Custom (Fallback button) verification
         
@@ -222,15 +237,13 @@ public class AppLocker: UIViewController {
         var err: NSError?
         // Check if the user is able to use the policy we've selected previously
         guard context.canEvaluatePolicy(policy, error: &err) else {return}
-        
         // The user is able to use his/her Touch ID / Face ID 👍
         context.evaluatePolicy(policy, localizedReason: ALConstants.kLocalizedReason, reply: {  success, error in
             if success {
-                DispatchQueue.main.async { [weak self] in
-                    guard let `self` = self else { return }
-                    self.dismiss(animated: true) {
-                        self.onSuccessfulDismiss?(self.mode)
-                    }
+                DispatchQueue.main.async {
+                    self.retryCount = 0
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "applocker_present_last_time")
+                    self.dismiss(animated: true, completion: nil)
                 }
             }
         })
@@ -243,12 +256,21 @@ public class AppLocker: UIViewController {
             drawing(isNeedClear: true)
         case ALConstants.button.cancel.rawValue:
             clearView()
-            dismiss(animated: true) {
-                self.onSuccessfulDismiss?(nil)
-            }
+            retryCount = 0
+            dismiss(animated: true, completion: nil)
         default:
             drawing(isNeedClear: false, tag: sender.tag)
         }
+    }
+    
+    @IBAction func contactSupportPressed(_ sender: UIButton) {
+        if let url = supportURL {
+            UIApplication.shared.open(url)
+        }
+        else {
+            supportButtonAction?()
+        }
+        
     }
     
 }
@@ -263,29 +285,87 @@ extension AppLocker: CAAnimationDelegate {
 // MARK: - Present
 public extension AppLocker {
     // Present AppLocker
-    class func present(with mode: ALMode, and config: ALOptions? = nil, over viewController: UIViewController? = nil) {
-        let vc = viewController ?? UIApplication.shared.keyWindow?.rootViewController
-        guard let root = vc,
-            
-            let locker = Bundle(for: self.classForCoder()).loadNibNamed(ALConstants.nibName, owner: self, options: nil)?.first as? AppLocker else {
-                return
+    class func present(with mode: ALMode, and config: ALAppearance? = nil) {
+        guard let root = UIApplication.shared.keyWindow?.rootViewController,
+              
+              let locker = Bundle(for: self.classForCoder()).loadNibNamed(ALConstants.nibName, owner: self, options: nil)?.first as? AppLocker else {
+            return
         }
+        locker.contactSupportButton.isHidden = true
         locker.messageLabel.text = config?.title ?? ""
         locker.submessageLabel.text = config?.subtitle ?? ""
+        locker.deleteButton.setTitle(config?.deleteString, for: .normal)
+        locker.cancelButton.setTitle(config?.cancelString, for: .normal)
+        locker.contactSupportButton.setTitle(config?.contactUsString, for: .normal)
         locker.view.backgroundColor = config?.color ?? .black
+        locker.supportURL = config?.supprotURL
         locker.mode = mode
-        locker.onSuccessfulDismiss = config?.onSuccessfulDismiss
-        locker.onFailedAttempt = config?.onFailedAttempt
-        
+        locker.supportButtonAction = config?.supportButtonAction
+        if config!.isRTL {
+            locker.view.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.messageLabel.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.submessageLabel.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.contactSupportButton.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.cancelButton.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.deleteButton.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button1.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button2.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button3.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button4.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button5.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button6.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button7.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button8.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button9.transform = CGAffineTransform(scaleX: -1, y: 1)
+            locker.button0.transform = CGAffineTransform(scaleX: -1, y: 1)
+        }
+        if #available(iOS 12, *) {
+            if UIScreen.main.traitCollection.userInterfaceStyle == .light {
+                locker.messageLabel.textColor = .black
+                locker.submessageLabel.textColor = .black
+                locker.contactSupportButton.setTitleColor(.black, for: .normal)
+                locker.cancelButton.setTitleColor(.black, for: .normal)
+                locker.deleteButton.setTitleColor(.black, for: .normal)
+                locker.button1.setTitleColor(.black, for: .normal)
+                locker.button2.setTitleColor(.black, for: .normal)
+                locker.button3.setTitleColor(.black, for: .normal)
+                locker.button4.setTitleColor(.black, for: .normal)
+                locker.button5.setTitleColor(.black, for: .normal)
+                locker.button6.setTitleColor(.black, for: .normal)
+                locker.button7.setTitleColor(.black, for: .normal)
+                locker.button8.setTitleColor(.black, for: .normal)
+                locker.button9.setTitleColor(.black, for: .normal)
+                locker.button0.setTitleColor(.black, for: .normal)
+            }
+        }
+        switch mode {
+        case .create:
+            locker.submessageLabel.text = config?.createString
+            locker.confirmString = config?.confirmString
+        case .validate:
+            locker.submessageLabel.text = config?.validateString
+        default:
+            locker.submessageLabel.text = "not_localized"
+        }
         if config?.isSensorsEnabled ?? false {
             locker.checkSensors()
         }
-        
         if let image = config?.image {
             locker.photoImageView.image = image
         } else {
             locker.photoImageView.isHidden = true
         }
-        root.present(locker, animated: true, completion: nil)
+        locker.modalPresentationStyle = .fullScreen
+
+        if root.presentedViewController?.presentedViewController !=  nil {
+            root.presentedViewController?.presentedViewController?.present(locker, animated: false, completion: nil)
+        }
+        else if root.presentedViewController != nil {
+            root.presentedViewController?.present(locker, animated: false, completion: nil)
+        }
+        else {
+            root.present(locker, animated: false, completion: nil)
+        }
     }
+    
 }
